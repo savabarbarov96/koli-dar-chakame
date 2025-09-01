@@ -2,6 +2,7 @@ import { useState, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { WinModal } from "./WinModal";
 import { Confetti } from "./Confetti";
+import { Wheel3D } from "./Wheel3D";
 
 export interface WheelSector {
   id: string;
@@ -20,7 +21,8 @@ export const WheelOfFortune: React.FC<WheelOfFortuneProps> = ({ sectors, onSpin 
   const [isSpinning, setIsSpinning] = useState(false);
   const [winResult, setWinResult] = useState<WheelSector | null>(null);
   const [showConfetti, setShowConfetti] = useState(false);
-  const wheelRef = useRef<SVGGElement>(null);
+  const [targetRotation, setTargetRotation] = useState(0);
+  const [use3D, setUse3D] = useState(true);
 
   const getColorClass = (color: WheelSector['color']) => {
     const colorMap = {
@@ -50,19 +52,21 @@ export const WheelOfFortune: React.FC<WheelOfFortuneProps> = ({ sectors, onSpin 
     if (isSpinning || sectors.length === 0) return;
 
     setIsSpinning(true);
+    setWinResult(null); // Clear previous result
     const winner = selectWinner();
     
     // Calculate rotation to land on the winner
-    const sectorAngle = 360 / sectors.length;
+    const sectorAngle = (Math.PI * 2) / sectors.length;
     const winnerIndex = sectors.findIndex(s => s.id === winner.id);
     const targetAngle = winnerIndex * sectorAngle + (sectorAngle / 2);
-    const finalRotation = 1800 + (360 - targetAngle); // 5 full rotations + adjustment
+    const finalRotation = Math.PI * 10 + targetAngle; // 5 full rotations + adjustment
 
-    if (wheelRef.current) {
-      wheelRef.current.style.transform = `rotate(${finalRotation}deg)`;
-    }
+    setTargetRotation(finalRotation);
 
+    // Store winner for when spin completes
     setTimeout(() => {
+      if (!isSpinning) return; // Prevent multiple results
+      
       setIsSpinning(false);
       setWinResult(winner);
       onSpin?.(winner);
@@ -71,96 +75,88 @@ export const WheelOfFortune: React.FC<WheelOfFortuneProps> = ({ sectors, onSpin 
         setShowConfetti(true);
         setTimeout(() => setShowConfetti(false), 3000);
       }
-    }, 5000);
+    }, 8000); // Match the 8-second spin duration
   };
 
   const resetWheel = () => {
     setWinResult(null);
-    if (wheelRef.current) {
-      wheelRef.current.style.transform = 'rotate(0deg)';
-    }
+    setTargetRotation(0);
   };
 
-  const radius = 150;
-  const centerX = 200;
-  const centerY = 200;
+  const handleSpinComplete = () => {
+    // This ensures the modal only appears after the wheel stops spinning
+    if (isSpinning) {
+      setIsSpinning(false);
+    }
+  };
 
   return (
     <div className="flex flex-col items-center gap-6">
       {showConfetti && <Confetti />}
       
       <div className="relative">
-        <svg width="400" height="400" className="drop-shadow-xl">
-          {/* Outer ring */}
-          <circle
-            cx={centerX}
-            cy={centerY}
-            r={radius + 10}
-            fill="hsl(var(--wheel-red))"
-            stroke="hsl(var(--wheel-red))"
-            strokeWidth="2"
+        {use3D ? (
+          <Wheel3D
+            sectors={sectors}
+            isSpinning={isSpinning}
+            targetRotation={targetRotation}
+            onSpinComplete={handleSpinComplete}
           />
-          
-          {/* Wheel sectors */}
-          <g ref={wheelRef} className="transition-transform duration-[5000ms] ease-out origin-center">
-            {sectors.map((sector, index) => {
-              const angle = (360 / sectors.length) * index;
-              const nextAngle = angle + (360 / sectors.length);
-              
-              const x1 = centerX + radius * Math.cos((angle * Math.PI) / 180);
-              const y1 = centerY + radius * Math.sin((angle * Math.PI) / 180);
-              const x2 = centerX + radius * Math.cos((nextAngle * Math.PI) / 180);
-              const y2 = centerY + radius * Math.sin((nextAngle * Math.PI) / 180);
-
-              const textAngle = angle + (360 / sectors.length) / 2;
-              const textRadius = radius * 0.7;
-              const textX = centerX + textRadius * Math.cos((textAngle * Math.PI) / 180);
-              const textY = centerY + textRadius * Math.sin((textAngle * Math.PI) / 180);
-
-              return (
-                <g key={sector.id}>
-                  <path
-                    d={`M ${centerX} ${centerY} L ${x1} ${y1} A ${radius} ${radius} 0 0 1 ${x2} ${y2} Z`}
-                    className={getColorClass(sector.color)}
-                    stroke="white"
-                    strokeWidth="2"
-                  />
-                  <text
-                    x={textX}
-                    y={textY}
-                    fill="white"
-                    fontSize="14"
-                    fontWeight="bold"
-                    textAnchor="middle"
-                    dominantBaseline="middle"
-                    transform={`rotate(${textAngle}, ${textX}, ${textY})`}
-                    className="pointer-events-none select-none font-semibold"
+        ) : (
+          <div className="w-96 h-96 relative">
+            <div 
+              className={`w-full h-full rounded-full border-8 border-wheel-red relative overflow-hidden
+                ${isSpinning ? 'animate-wheel-spin animate-wheel-glow' : ''}
+                shadow-2xl`}
+              style={{
+                background: `conic-gradient(${sectors.map((sector, index) => {
+                  const percentage = 100 / sectors.length;
+                  const startPercentage = (index * percentage);
+                  const endPercentage = ((index + 1) * percentage);
+                  return `hsl(var(--wheel-${sector.color})) ${startPercentage}% ${endPercentage}%`;
+                }).join(', ')})`
+              }}
+            >
+              {/* Sector labels */}
+              {sectors.map((sector, index) => {
+                const angle = (360 / sectors.length) * index + (360 / sectors.length) / 2;
+                const radius = 140;
+                return (
+                  <div
+                    key={sector.id}
+                    className="absolute text-white font-bold text-sm pointer-events-none select-none drop-shadow-lg"
+                    style={{
+                      left: '50%',
+                      top: '50%',
+                      transform: `translate(-50%, -50%) rotate(${angle}deg) translateY(-${radius}px) rotate(-${angle}deg)`,
+                      textAlign: 'center',
+                      maxWidth: '80px',
+                      fontSize: sectors.length > 8 ? '11px' : '14px'
+                    }}
                   >
                     {sector.text}
-                  </text>
-                </g>
-              );
-            })}
-          </g>
-
-          {/* Center circle */}
-          <circle
-            cx={centerX}
-            cy={centerY}
-            r="20"
-            fill="hsl(var(--wheel-red))"
-            stroke="white"
-            strokeWidth="3"
-          />
-
-          {/* Pointer */}
-          <polygon
-            points="200,50 210,70 190,70"
-            fill="hsl(var(--wheel-red))"
-            stroke="white"
-            strokeWidth="2"
-          />
-        </svg>
+                  </div>
+                );
+              })}
+              
+              {/* Center circle */}
+              <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-16 h-16 bg-wheel-red rounded-full border-4 border-white shadow-lg" />
+            </div>
+            
+            {/* Pointer */}
+            <div className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-2 w-0 h-0 border-l-4 border-r-4 border-b-8 border-l-transparent border-r-transparent border-b-wheel-red shadow-lg z-10" />
+          </div>
+        )}
+        
+        {/* Toggle 3D/2D button */}
+        <Button
+          onClick={() => setUse3D(!use3D)}
+          variant="outline"
+          size="sm"
+          className="absolute top-2 right-2"
+        >
+          {use3D ? '2D' : '3D'}
+        </Button>
       </div>
 
       <div className="flex flex-col items-center gap-4">
